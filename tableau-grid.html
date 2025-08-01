@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau Data Grid with Snowflake Integration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tableau Extensions API -->
+    <script src="https://extensions-api.tableau.com/tableau.extensions.1.latest.js"></script>
+    <style>
+        .tableau-header {
+            background: linear-gradient(135deg, #1f4e79 0%, #1e4176 50%, #1a3a6b 100%);
+            color: white;
+        }
+        .tableau-shadow {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1);
+        }
+        .hover-lift:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15), 0 12px 24px rgba(0,0,0,0.15);
+        }
+        .status-indicator {
+            position: relative;
+            overflow: hidden;
+        }
+        .status-indicator::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+        .status-indicator:hover::before {
+            left: 100%;
+        }
+        .pagination-button {
+            transition: all 0.2s ease;
+        }
+        .pagination-button:hover:not(:disabled) {
+            background: #1f4e79;
+            color: white;
+            transform: translateY(-1px);
+        }
+        .column-header {
+            transition: all 0.2s ease;
+        }
+        .column-header:hover {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+        }
+        .form-section {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-left: 4px solid #1f4e79;
+        }
+        .success-message {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-left: 4px solid #22c55e;
+        }
+        .error-message {
+            background: linear-gradient(135deg, #fef2f2, #fecaca);
+            border-left: 4px solid #ef4444;
+        }
+        .column-input-group {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+        .column-input-group:hover {
+            border-color: #1f4e79;
+            box-shadow: 0 2px 4px rgba(31, 78, 121, 0.1);
+        }
+        .snowflake-icon {
+            color: #29b5e8;
+        }
+        .tableau-loading {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root">
+        <div style="padding: 20px; font-family: Arial; text-align: center;">
+            <div class="tableau-loading" style="height: 200px; border-radius: 8px; margin: 20px 0;"></div>
+            <h1>Initializing Tableau Extension...</h1>
+            <p>Connecting to Tableau dashboard and loading data...</p>
+        </div>
+    </div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback } = React;
+        
+        const TableauGrid = () => {
+          // State management
+          const [sortField, setSortField] = useState(null);
+          const [sortDirection, setSortDirection] = useState('asc');
+          const [globalFilter, setGlobalFilter] = useState('');
+          const [columnFilters, setColumnFilters] = useState({});
+          const [currentPage, setCurrentPage] = useState(1);
+          const [rowsPerPage, setRowsPerPage] = useState(10);
+          const [selectedRows, setSelectedRows] = useState(new Set());
+          const [showFilters, setShowFilters] = useState(false);
+          
+          // Tableau-specific state
+          const [isTableauLoaded, setIsTableauLoaded] = useState(false);
+          const [tableauData, setTableauData] = useState([]);
+          const [tableauColumns, setTableauColumns] = useState([]);
+          const [worksheetName, setWorksheetName] = useState('');
+          const [loading, setLoading] = useState(true);
+          const [error, setError] = useState(null);
+          
+          // Snowflake table creation state
+          const [showTableCreator, setShowTableCreator] = useState(false);
+          const [snowflakeConfig, setSnowflakeConfig] = useState({
+            account: 'cadillacfairview.ca-central-1.aws',
+            warehouse: 'CF_ETL_NONPROD',
+            database: 'CF_EDW_DEV',
+            schema: 'TABLEAU_ADMIN_INSIGHTS',
+            username: 'prakash.panchal@cadillacfairview.com',
+            authenticator: 'externalbrowser'
+          });
+          const [tableConfig, setTableConfig] = useState({
+            tableName: '',
+            primaryKey: '',
+            columns: [{ name: '', dataType: 'VARCHAR(255)', description: '' }]
+          });
+          const [isCreating, setIsCreating] = useState(false);
+          const [creationStatus, setCreationStatus] = useState(null);
+          const [showConnectionForm, setShowConnectionForm] = useState(false);
+
+          const dataTypes = [
+            'VARCHAR(255)',
+            'VARCHAR(50)',
+            'VARCHAR(1000)',
+            'INTEGER',
+            'FLOAT',
+            'DECIMAL(10,2)',
+            'BOOLEAN',
+            'DATE',
+            'TIMESTAMP',
+            'TEXT'
+          ];
+
+          // Initialize Tableau Extension
+          useEffect(() => {
+            const initializeTableau = async () => {
+              try {
+                console.log('Initializing Tableau Extension...');
+                
+                // Check if Tableau Extensions API is available
+                if (!window.tableau || !window.tableau.extensions) {
+                  throw new Error('Tableau Extensions API not available');
+                }
+                
+                // Initialize the extension
+                await window.tableau.extensions.initializeAsync();
+                console.log('Tableau Extension initialized successfully');
+                
+                // Get the dashboard
+                const dashboard = window.tableau.extensions.dashboardContent.dashboard;
+                console.log('Dashboard accessed:', dashboard.name);
+                
+                // Get worksheets
+                const worksheets = dashboard.worksheets;
+                console.log('Available worksheets:', worksheets.map(ws => ws.name));
+                
+                if (worksheets.length === 0) {
+                  throw new Error('No worksheets found in dashboard');
+                }
+                
+                // Use the first worksheet with data
+                const worksheet = worksheets[0];
+                setWorksheetName(worksheet.name);
+                console.log('Using worksheet:', worksheet.name);
+                
+                // Get summary data from the worksheet
+                const summaryData = await worksheet.getSummaryDataAsync();
+                console.log('Summary data retrieved:', summaryData);
+                
+                // Process columns
+                const processedColumns = summaryData.columns.map((col, index) => ({
+                  field: col.fieldName,
+                  headerName: col.fieldName,
+                  type: mapTableauDataType(col.dataType),
+                  width: getColumnWidth(col.dataType),
+                  sortable: true,
+                  filterable: true,
+                  tableauIndex: index
+                }));
+                
+                // Process data rows
+                const processedData = summaryData.data.map((row, rowIndex) => {
+                  const rowObj = { _tableauRowId: rowIndex };
+                  row.forEach((cell, colIndex) => {
+                    const fieldName = summaryData.columns[colIndex].fieldName;
+                    rowObj[fieldName] = cell.formattedValue || cell.value;
+                  });
+                  return rowObj;
+                });
+                
+                console.log('Processed columns:', processedColumns);
+                console.log('Processed data sample:', processedData.slice(0, 3));
+                
+                setTableauColumns(processedColumns);
+                setTableauData(processedData);
+                setIsTableauLoaded(true);
+                
+              } catch (err) {
+                console.error('Error initializing Tableau:', err);
+                setError(err.message);
+                
+                // Fallback to sample data for development/testing
+                console.log('Falling back to sample data...');
+                setTableauColumns([
+                  { field: 'ID', headerName: 'ID', type: 'number', width: '80px', sortable: true, filterable: true },
+                  { field: 'Name', headerName: 'Product Name', type: 'string', width: '200px', sortable: true, filterable: true },
+                  { field: 'Status', headerName: 'Status', type: 'string', width: '120px', sortable: true, filterable: true },
+                  { field: 'Revenue', headerName: 'Revenue ($)', type: 'currency', width: '140px', sortable: true, filterable: true },
+                  { field: 'Category', headerName: 'Category', type: 'string', width: '150px', sortable: true, filterable: true },
+                ]);
+                
+                setTableauData([
+                  { ID: 1, Name: 'Sample Product A', Status: 'Active', Revenue: 150000, Category: 'Electronics' },
+                  { ID: 2, Name: 'Sample Product B', Status: 'Inactive', Revenue: 85000, Category: 'Clothing' },
+                  { ID: 3, Name: 'Sample Product C', Status: 'Active', Revenue: 220000, Category: 'Electronics' },
+                ]);
+                
+                setWorksheetName('Sample Data (Tableau connection failed)');
+              } finally {
+                setLoading(false);
+              }
+            };
+
+            initializeTableau();
+          }, []);
+
+          // Helper functions for Tableau data processing
+          const mapTableauDataType = (tableauType) => {
+            switch (tableauType.toLowerCase()) {
+              case 'integer':
+              case 'int':
+                return 'number';
+              case 'float':
+              case 'real':
+                return 'currency';
+              case 'date':
+              case 'datetime':
+                return 'date';
+              case 'boolean':
+                return 'boolean';
+              default:
+                return 'string';
+            }
+          };
+
+          const getColumnWidth = (dataType) => {
+            switch (dataType.toLowerCase()) {
+              case 'integer':
+              case 'int':
+                return '100px';
+              case 'float':
+              case 'real':
+                return '120px';
+              case 'date':
+              case 'datetime':
+                return '130px';
+              case 'boolean':
+                return '80px';
+              default:
+                return '150px';
+            }
+          };
+
+          // Data processing (same as before but using Tableau data)
+          const processedData = useMemo(() => {
+            let filtered = tableauData;
+            
+            if (globalFilter) {
+              filtered = filtered.filter(row =>
+                Object.values(row).some(value =>
+                  String(value).toLowerCase().includes(globalFilter.toLowerCase())
+                )
+              );
+            }
+            
+            Object.entries(columnFilters).forEach(([field, filterValue]) => {
+              if (filterValue) {
+                filtered = filtered.filter(row =>
+                  String(row[field]).toLowerCase().includes(filterValue.toLowerCase())
+                );
+              }
+            });
+            
+            if (sortField) {
+              filtered = [...filtered].sort((a, b) => {
+                let aVal = a[sortField];
+                let bVal = b[sortField];
+                
+                if (tableauColumns.find(col => col.field === sortField)?.type === 'currency') {
+                  aVal = Number(aVal);
+                  bVal = Number(bVal);
+                } else if (tableauColumns.find(col => col.field === sortField)?.type === 'date') {
+                  aVal = new Date(aVal);
+                  bVal = new Date(bVal);
+                } else if (typeof aVal === 'string') {
+                  aVal = aVal.toLowerCase();
+                  bVal = bVal.toLowerCase();
+                }
+                
+                if (sortDirection === 'asc') {
+                  return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                  return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+              });
+            }
+            
+            return filtered;
+          }, [tableauData, globalFilter, columnFilters, sortField, sortDirection, tableauColumns]);
+
+          const paginatedData = useMemo(() => {
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            return processedData.slice(startIndex, startIndex + rowsPerPage);
+          }, [processedData, currentPage, rowsPerPage]);
+
+          const totalPages = Math.ceil(processedData.length / rowsPerPage);
+
+          // Event handlers (same as before)
+          const handleSort = useCallback((field) => {
+            if (sortField === field) {
+              setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+            } else {
+              setSortField(field);
+              setSortDirection('asc');
+            }
+          }, [sortField, sortDirection]);
+
+          const handleColumnFilter = useCallback((field, value) => {
+            setColumnFilters(prev => ({
+              ...prev,
+              [field]: value
+            }));
+            setCurrentPage(1);
+          }, []);
+
+          const clearFilters = useCallback(() => {
+            setGlobalFilter('');
+            setColumnFilters({});
+            setCurrentPage(1);
+          }, []);
+
+          const toggleRowSelection = useCallback((rowId) => {
+            setSelectedRows(prev => {
+              const newSet = new Set(prev);
+              const id = rowId || Math.random(); // Handle rows without ID
+              if (newSet.has(id)) {
+                newSet.delete(id);
+              } else {
+                newSet.add(id);
+              }
+              return newSet;
+            });
+          }, []);
+
+          const selectAllRows = useCallback(() => {
+            const allRowIds = paginatedData.map(row => row.ID || row._tableauRowId || Math.random());
+            setSelectedRows(new Set(allRowIds));
+          }, [paginatedData]);
+
+          const clearSelection = useCallback(() => {
+            setSelectedRows(new Set());
+          }, []);
+
+          // Snowflake table creation functions (simplified for demo)
+          const addColumn = () => {
+            if (tableConfig.columns.length < 10) {
+              setTableConfig(prev => ({
+                ...prev,
+                columns: [...prev.columns, { name: '', dataType: 'VARCHAR(255)', description: '' }]
+              }));
+            }
+          };
+
+          const removeColumn = (index) => {
+            if (tableConfig.columns.length > 1) {
+              setTableConfig(prev => ({
+                ...prev,
+                columns: prev.columns.filter((_, i) => i !== index)
+              }));
+            }
+          };
+
+          const updateColumn = (index, field, value) => {
+            setTableConfig(prev => ({
+              ...prev,
+              columns: prev.columns.map((col, i) => 
+                i === index ? { ...col, [field]: value } : col
+              )
+            }));
+          };
+
+          const generateSQL = () => {
+            const { tableName, primaryKey, columns } = tableConfig;
+            
+            if (!tableName || !primaryKey || columns.some(col => !col.name)) {
+              return null;
+            }
+
+            const columnDefinitions = columns.map(col => 
+              `  ${col.name.toUpperCase()} ${col.dataType}${col.description ? ` COMMENT '${col.description}'` : ''}`
+            ).join(',\n');
+
+            const primaryKeyConstraint = `  CONSTRAINT PK_${tableName.toUpperCase()} PRIMARY KEY (${primaryKey.toUpperCase()})`;
+
+            return `CREATE TABLE IF NOT EXISTS ${tableName.toUpperCase()} (
+${columnDefinitions},
+${primaryKeyConstraint}
+) COMMENT = 'Table created from Tableau Extension - ${new Date().toISOString()}';`;
+          };
+
+          const createSnowflakeTable = async () => {
+            // Simplified demo version - in reality this would call your backend
+            setIsCreating(true);
+            setCreationStatus(null);
+
+            try {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              setCreationStatus({ 
+                type: 'success', 
+                message: `✅ Demo: Table "${tableConfig.tableName.toUpperCase()}" would be created in Snowflake!`,
+                details: `This is a demonstration. In production, this would:
+
+1. Connect to Snowflake using external browser authentication
+2. Create table in: ${snowflakeConfig.database}.${snowflakeConfig.schema}
+3. Use the generated SQL to create the table structure
+4. Return the actual table location and creation timestamp
+
+Generated SQL would be executed in Snowflake.`
+              });
+              
+            } catch (error) {
+              setCreationStatus({ 
+                type: 'error', 
+                message: `Demo error: ${error.message}` 
+              });
+            } finally {
+              setIsCreating(false);
+            }
+          };
+
+          // Utility functions
+          const getStatusColor = (status) => {
+            switch (String(status).toLowerCase()) {
+              case 'active': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+              case 'inactive': return 'bg-red-100 text-red-800 border-red-200';
+              case 'pending': return 'bg-amber-100 text-amber-800 border-amber-200';
+              default: return 'bg-gray-100 text-gray-800 border-gray-200';
+            }
+          };
+
+          const getSortIcon = (field) => {
+            if (sortField !== field) return '↕️';
+            return sortDirection === 'asc' ? '⬆️' : '⬇️';
+          };
+
+          const formatCellValue = (value, column) => {
+            if (value === null || value === undefined) return '';
+            
+            switch (column.type) {
+              case 'currency':
+                return new Intl.NumberFormat('en-US', { 
+                  style: 'currency', 
+                  currency: 'USD',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                }).format(value);
+              case 'number':
+                return Number(value).toLocaleString();
+              case 'date':
+                return new Date(value).toLocaleDateString();
+              default:
+                return String(value);
+            }
+          };
+
+          const exportToCSV = useCallback(() => {
+            const headers = tableauColumns.map(col => col.headerName).join(',');
+            const rows = processedData.map(row =>
+              tableauColumns.map(col => `"${formatCellValue(row[col.field], col)}"`).join(',')
+            );
+            
+            const csv = [headers, ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tableau-data-export-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+          }, [processedData, tableauColumns]);
+
+          if (loading) {
+            return (
+              <div className="flex items-center justify-center h-screen">
+                <div className="text-center">
+                  <div className="tableau-loading rounded-full h-16 w-16 mx-auto mb-4"></div>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-2">Loading Tableau Data...</h2>
+                  <p className="text-gray-600">Connecting to worksheet and processing data</p>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+              {/* Header */}
+              <div className="tableau-header py-4 px-6 tableau-shadow">
+                <div className="max-w-7xl mx-auto">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h1 className="text-2xl font-bold mb-1">📊 Tableau Data Grid Extension</h1>
+                      <p className="text-blue-100 text-sm">
+                        {isTableauLoaded ? '🔗 Connected to Tableau' : '📊 Demo Mode'} • 
+                        Worksheet: {worksheetName} • 
+                        {processedData.length} rows
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <button
+                        onClick={() => setShowTableCreator(!showTableCreator)}
+                        className={`px-3 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 text-sm ${
+                          showTableCreator ? 'bg-blue-100 text-blue-800' : 'bg-white text-blue-800 hover:bg-blue-50'
+                        }`}
+                      >
+                        <span className="snowflake-icon">❄️</span>
+                        <span>Create Table</span>
+                      </button>
+                      <button
+                        onClick={exportToCSV}
+                        className="bg-white text-blue-800 px-3 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors flex items-center space-x-2 text-sm"
+                      >
+                        <span>📥</span>
+                        <span>Export</span>
+                      </button>
+                      <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`px-3 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 text-sm ${
+                          showFilters ? 'bg-blue-100 text-blue-800' : 'bg-white text-blue-800 hover:bg-blue-50'
+                        }`}
+                      >
+                        <span>🔍</span>
+                        <span>Filters</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="max-w-7xl mx-auto p-6">
+                {error && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                    <div className="flex items-start">
+                      <span className="text-yellow-500 text-xl mr-3">⚠️</span>
+                      <div>
+                        <h3 className="font-medium text-yellow-800">Tableau Connection Notice</h3>
+                        <p className="text-yellow-700 text-sm mt-1">{error}</p>
+                        <p className="text-yellow-600 text-xs mt-2">Using sample data for demonstration. In Tableau, this would show your actual worksheet data.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rest of the component - search, filters, table, etc. */}
+                {/* Same structure as before but more compact for extension */}
+                
+                {/* Search Bar */}
+                <div className="bg-white rounded-lg tableau-shadow p-4 mb-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-3 lg:space-y-0">
+                    <div className="flex-1 max-w-md">
+                      <input
+                        type="text"
+                        placeholder="🔍 Search data..."
+                        value={globalFilter}
+                        onChange={(e) => {
+                          setGlobalFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center space-x-3">
+                      <select
+                        value={rowsPerPage}
+                        onChange={(e) => {
+                          setRowsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value={5}>5 rows</option>
+                        <option value={10}>10 rows</option>
+                        <option value={25}>25 rows</option>
+                        <option value={50}>50 rows</option>
+                      </select>
+                      
+                      {(globalFilter || Object.keys(columnFilters).some(key => columnFilters[key])) && (
+                        <button
+                          onClick={clearFilters}
+                          className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg font-medium transition-colors text-sm"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Data Grid */}
+                <div className="bg-white rounded-lg tableau-shadow overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {tableauColumns.map((column) => (
+                            <th
+                              key={column.field}
+                              className="column-header px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                              style={{ width: column.width }}
+                              onClick={() => column.sortable && handleSort(column.field)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>{column.headerName}</span>
+                                {column.sortable && (
+                                  <span className="ml-2 text-sm">
+                                    {getSortIcon(column.field)}
+                                  </span>
+                                )}
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {paginatedData.map((row, index) => (
+                          <tr
+                            key={row.ID || row._tableauRowId || index}
+                            className="hover:bg-blue-50 transition-colors"
+                          >
+                            {tableauColumns.map((column) => (
+                              <td key={column.field} className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                {column.field.toLowerCase().includes('status') ? (
+                                  <span className={`status-indicator inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(row[column.field])}`}>
+                                    {formatCellValue(row[column.field], column)}
+                                  </span>
+                                ) : (
+                                  <span className={`${column.type === 'currency' || column.type === 'number' ? 'font-mono font-medium' : ''}`}>
+                                    {formatCellValue(row[column.field], column)}
+                                  </span>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-700">
+                        Showing {((currentPage - 1) * rowsPerPage) + 1} to{' '}
+                        {Math.min(currentPage * rowsPerPage, processedData.length)} of{' '}
+                        {processedData.length} results
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1}
+                          className="pagination-button px-3 py-1 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          ◀️ Previous
+                        </button>
+                        
+                        <span className="text-sm text-gray-700">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                          disabled={currentPage === totalPages}
+                          className="pagination-button px-3 py-1 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Next ▶️
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Snowflake Table Creator - Simplified for Extension */}
+                {showTableCreator && (
+                  <div className="form-section rounded-lg tableau-shadow p-4 mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center">
+                        <span className="snowflake-icon text-2xl mr-2">❄️</span>
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-800">Create Snowflake Table</h3>
+                          <p className="text-sm text-gray-600">Define new table structure from Tableau data</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowTableCreator(false)}
+                        className="text-gray-500 hover:text-gray-700 text-xl font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Basic Table Info */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Table Name <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={tableConfig.tableName}
+                          onChange={(e) => setTableConfig(prev => ({ ...prev, tableName: e.target.value }))}
+                          placeholder="e.g., TABLEAU_EXPORT_DATA"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Primary Key <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={tableConfig.primaryKey}
+                          onChange={(e) => setTableConfig(prev => ({ ...prev, primaryKey: e.target.value }))}
+                          placeholder="e.g., ID"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Action: Auto-populate from Tableau */}
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-blue-800">
+                          💡 <strong>Tip:</strong> Auto-generate columns from current Tableau data
+                        </p>
+                        <button
+                          onClick={() => {
+                            const autoColumns = tableauColumns.slice(0, 5).map(col => ({
+                              name: col.field.toUpperCase(),
+                              dataType: col.type === 'number' ? 'INTEGER' : 
+                                       col.type === 'currency' ? 'DECIMAL(10,2)' :
+                                       col.type === 'date' ? 'DATE' : 'VARCHAR(255)',
+                              description: `Auto-generated from Tableau column: ${col.headerName}`
+                            }));
+                            setTableConfig(prev => ({ ...prev, columns: autoColumns }));
+                          }}
+                          className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                        >
+                          Auto-Generate
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Simplified Column Definitions */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-gray-800">Columns ({tableConfig.columns.length}/10)</h4>
+                        <button
+                          onClick={addColumn}
+                          disabled={tableConfig.columns.length >= 10}
+                          className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                        >
+                          ➕ Add
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {tableConfig.columns.map((column, index) => (
+                          <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                            <input
+                              type="text"
+                              value={column.name}
+                              onChange={(e) => updateColumn(index, 'name', e.target.value)}
+                              placeholder="Column Name"
+                              className="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <select
+                              value={column.dataType}
+                              onChange={(e) => updateColumn(index, 'dataType', e.target.value)}
+                              className="px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {dataTypes.map(type => (
+                                <option key={type} value={type}>{type}</option>
+                              ))}
+                            </select>
+                            {tableConfig.columns.length > 1 && (
+                              <button
+                                onClick={() => removeColumn(index)}
+                                className="text-red-600 hover:text-red-800 text-sm"
+                              >
+                                ❌
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* SQL Preview */}
+                    {generateSQL() && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-gray-800 mb-2">Generated SQL</h4>
+                        <div className="bg-gray-900 text-green-400 p-3 rounded text-xs font-mono overflow-x-auto max-h-32">
+                          <pre>{generateSQL()}</pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Status Messages */}
+                    {creationStatus && (
+                      <div className={`p-3 rounded-lg mb-4 ${
+                        creationStatus.type === 'success' ? 'success-message' : 'error-message'
+                      }`}>
+                        <div className="flex items-start">
+                          <span className="text-xl mr-2 flex-shrink-0">
+                            {creationStatus.type === 'success' ? '✅' : '❌'}
+                          </span>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{creationStatus.message}</p>
+                            {creationStatus.details && (
+                              <div className="text-xs mt-2 opacity-90">
+                                <pre className="whitespace-pre-wrap">{creationStatus.details}</pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex justify-between items-center">
+                      <div className="text-xs text-gray-600">
+                        <p>🎯 Extension Mode: Simplified demo interface</p>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setShowTableCreator(false)}
+                          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={createSnowflakeTable}
+                          disabled={isCreating || !generateSQL()}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center space-x-2 text-sm"
+                        >
+                          {isCreating ? (
+                            <>
+                              <span className="animate-spin">⚡</span>
+                              <span>Creating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="snowflake-icon">❄️</span>
+                              <span>Create (Demo)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="mt-4 text-center">
+                  <div className="text-xs text-gray-500">
+                    Tableau Extension • Cadillac Fairview • Data Grid with Snowflake Integration
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+        
+        ReactDOM.render(<TableauGrid />, document.getElementById('root'));
+    </script>
+</body>
+</html>
