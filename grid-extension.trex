@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <dashboard-extension id="com.company.advancedgrid" extension-version="1.0.0">
+    <default-locale>en_US</default-locale>
+    <name resource-id="name"/>
+    <description resource-id="description"/>
+    <author name="Your Company" email="admin@yourcompany.com" organization="Your Organization" website="https://www.yourcompany.com"/>
+    <min-api-version>1.0</min-api-version>
+    <source-location>
+      <url>https://github.com/vizmetadata/tableau-grid-extension/blob/main/tableau-grid-extension.html</url>
+    </source-location>
+    <icon>
+      iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANQSURBVDiNpZNLaJNdFMd/5/0+X/LFJBqTNE1sGquxVWutiopWC4qCCIILwYULFy5cCbpQcCO4EBeuXLhx4UJ0484WtCilWm2tta1Wo9VWG1vTpEk+P19f3+/c+7hw0UWLLjybc5ez+J/fOedC/zG8/yOCwSDV1dXU1tZSVVVFeXk5giAgSRJCCIQQGIaBrutYloWmaViWhWEY/A8hxDsLoihSUFBAXl4eHo8Hl8uFzWZDURRkWUYIgRACwzAwTRPLstA0DV3X0XUd0zTRNA1d19E0DdM0sSwLy7KwLAvTNNF1HV3XsSzr3QWKolBeXk5jYyMNDQ1UVFSQm5uL0+nE4XBgs9mQZRkpKSlIkkRKSgqyLONwOHA6neTm5lJRUUFDQwONjY2Ul5ejKAq6rv+9QFEUysrKaGpqorm5mdbWVjo6Ouju7qa3t5eBgQGGhoYYGRlhbGyM8fFxJiYmmJycZGpqipmZGWZnZ5mbm2N+fp6FhQUWFxdZWlpieXmZlZUVVldXWVtbY319nY2NDTabzVsLFEWhtLSUpqYmWlpaaGtro7Ozk56eHvr6+hgcHGR4eJiRkRHGxsYYHx9nYmKCyclJpqammJ6eZmZmhtnZWebm5pifn2dhYYHFxUWWlpZYXl5mZWWF1dVV1tbWWF9fZ2Nji+3tbXZ2dtjd3WVvb4/9/X0ODg44PDzk6OiI4+NjTk5OOD095fT0lLOzM87Pz7m4uODy8pKrqyuur6+5ubnhtseCZZl8evWKs9vbf0zYbrfT3t5OW1sb7e3tdHZ20tXVRXd3N729vQwMDDA0NMTIyAijo6OMjY0xPj7OxMQEk5OTTE1NMT09zczMDLOzs8zNzTE/P8/CwgKLi4ssLS2xvLzMysoKq6urrK2tsb6+zsbGBpubm2xtbbG9vc3Ozg67u7vs7e2xv7/PwcEBh4eHHB0dcXx8zMnJCaenp5ydnXF+fs7FxQWXl5dcXV1xfX3Nzc0Nt7e33N3dcX9/z8PDA4+Pjzw9PfH8/MyPl5e8evWKN2/e8Pbt2z8WWJaFaZqYpolhGBiGgWEYGIaBYRgYhoFhGBiGgWEYGIaBYRgYhoFhGBiGgWEYGIaBYRgYhoFhGBiGgWEYGIaBYRgYhoFhGBiGgWEYGIaBYRgYhoFhGBiGgWEYGIaBYRgYhvHzP3l9fc2vv/7K27dveWf9DSHkjO97AAAAAElFTkSuQmCC
+    </icon>
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+    <context-menu>
+      <configure-context-menu-item />
+    </context-menu>
+  </dashboard-extension>
+  <resources>
+    <resource id="name">
+      <text locale="en_US">Advanced Data Grid</text>
+    </resource>
+    <resource id="description">
+      <text locale="en_US">A powerful data grid extension with advanced features including search, sorting, pagination, and export capabilities for Tableau dashboards.</text>
+    </resource>
+  </resources>
+</manifest>
