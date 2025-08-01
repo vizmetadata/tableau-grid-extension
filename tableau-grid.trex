@@ -7,9 +7,9 @@
     <author name="Prakash Panchal" email="prakash.panchal@cadillacfairview.com" organization="Cadillac Fairview" website="https://cadillacfairview.com"/>
     <min-api-version>1.0</min-api-version>
     <source-location>
-      <url>https://your-github-username.github.io/tableau-grid-extension/tableau-grid.html</url>
+      <url>https://github.com/vizmetadata/tableau-grid-extension/tableau-grid.html</url>
     </source-location>
-    <icon>https://your-github-username.github.io/tableau-grid-extension/icon.png</icon>
+    <icon>https://github.com/vizmetadata/tableau-grid-extension/icon.png</icon>
     <permissions>
       <permission>full data</permission>
     </permissions>
